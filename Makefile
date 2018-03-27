@@ -9,3 +9,5 @@ dep_cowboy_commit = 2.2.2
 DEP_PLUGINS = cowboy
 
 include erlang.mk
+
+ERLC_OPTS := $(filter-out -Werror,$(ERLC_OPTS))
