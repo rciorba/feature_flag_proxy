@@ -53,22 +53,50 @@ cowboy_to_gun_headers(Map) ->
     ].
 
 
+fix_header_name(HeaderName) ->
+    case HeaderName of
+        <<"set-cookie">> -> <<"Set-Cookie">>;
+        Any -> Any
+    end.
+
+
+transform_response_headers(Headers) ->
+    %% TODO: https://www.mnot.net/blog/2011/07/11/what_proxies_must_do
+    [{fix_header_name(Name), Value} ||
+        {Name, Value} <- Headers,
+        Name =/= <<"connection">>,
+        Name =/= <<"content-length">>,
+        Name =/= <<"te">>,
+        Name =/= <<"transfer-encoding">>,
+        Name =/= <<"keep-alive">>,
+        Name =/= <<"proxy-authorization">>,
+        Name =/= <<"proxy-authentication">>,
+        Name =/= <<"trailer">>,
+        Name =/= <<"upgrade">>
+    ].
+
+
 init(Req0, State) ->
-    {ok, ConnPid} = gun:open("localhost", 9090),
+    {ok, ConnPid} = gun:open("localhost", 8080),
     {ok, Protocol} = gun:await_up(ConnPid),
     MRef = monitor(process, ConnPid),
     Path = iolist_to_binary(
              [<<"/">> | lists:join(<<"/">>, cowboy_req:path_info(Req0))]),
     io:format("~p~n", [Path]),
     RequestHeaders = cowboy_to_gun_headers(maps:get(headers, Req0)),
-    io:format("~p~n", [RequestHeaders]),
+    io:format("RequestHeaders: ~p~n", [RequestHeaders]),
     {ok, Status, OriginalHeaders, Response} = do_request(
-                                                ConnPid, 
-                                                MRef, 
+                                                ConnPid,
+                                                MRef,
                                                 Path,
                                                 maps:get(method, Req0),
                                                 RequestHeaders),
-    Headers = [{<<"via">>, <<"1.1 feature_flag_proxy">>} | OriginalHeaders],
+    Headers = [
+               {<<"via">>, <<"1.1 feature_flag_proxy">>}
+               |
+               transform_response_headers(OriginalHeaders)
+              ],
+    io:format("Headers: ~p~n", [Headers]),
     Req = cowboy_req:reply(Status,
         %% #{<<"content-type">> => <<"text/html">>},
         maps:from_list(Headers),
