@@ -86,21 +86,8 @@ transform_response_headers(Headers) ->
     ].
 
 
-match_server(Path, [], Default) ->
-    Default;
-match_server(Path, RouteSpec, Default) ->
-    [{Regexp, Server} | Tail] = RouteSpec,
-    case re:run(Path, Regexp) of
-        {match, _} -> Server;
-        nomatch -> match_server(Path, Tail, Default)
-    end.
-
-
 open_connection(Path) ->
-    RouteSpec = [
-                 {<<"^/api/v1/samples">>, {"localhost", 9090}}
-                ],
-    {Host, Port} = match_server(Path, RouteSpec, {"localhost", 8080}),
+    {Host, Port} = route_spec_server:match_server(Path),
     io:format("~p - ~p~n", [{Host, Port}, Path]),
     {ok, ConnPid} = gun:open(Host, Port),
     {ok, _Protocol} = gun:await_up(ConnPid),
