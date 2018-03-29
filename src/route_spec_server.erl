@@ -3,7 +3,7 @@
 
 -export([start_link/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, code_change/3, terminate/2]).
--export([disable_routespec/1, enable_routespec/1, get_routespecs/0, 
+-export([disable_routespec/1, enable_routespec/1, get_routespecs/0,
          route_spec/2, route_spec/3, match_server/1]).
 
 -record(spec, {regexp, host, enabled=true, id}).
@@ -12,7 +12,7 @@ start_link() ->
     gen_server:start_link({local, route_srv}, ?MODULE, [], []).
 
 %%% Server functions
-init([]) -> 
+init([]) ->
     RouteSpec = [
                  route_spec(<<"^/api/v1/samples">>, {"localhost", 9090}, true, 10)
                 ],
@@ -56,7 +56,7 @@ terminate(normal, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     %% No change planned. The function is there for the behaviour,
     %% but will not be used. Only a version on the next
-    {ok, State}. 
+    {ok, State}.
 
 
 %%% public API
@@ -117,5 +117,3 @@ toggle_routespec(Id, RouteSpecs, Enabled, Acc) ->
               {ok, lists:reverse(Acc1) ++ Tail};
         _ -> toggle_routespec(Id, Tail, Enabled, [Spec | Acc])
     end.
-
-    

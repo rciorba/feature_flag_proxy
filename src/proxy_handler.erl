@@ -96,8 +96,13 @@ open_connection(Path) ->
 
 
 init(Req, State) ->
-    Path = iolist_to_binary(
-             [<<"/">> | lists:join(<<"/">>, cowboy_req:path_info(Req))]),
+    QString = cowboy_req:qs(Req),
+    QStringList = case QString of
+                      <<"">> -> [];
+                      _ -> [<<"?">>, QString]
+                  end,
+    Path0 = lists:join(<<"/">>, cowboy_req:path_info(Req)) ++ QStringList,
+    Path = iolist_to_binary([<<"/">> | Path0]),
     %% io:format("~p~n", [Path]),
     {ok, ConnPid, MRef} = open_connection(Path),
     RequestHeaders = transform_request_headers(maps:get(headers, Req)),
