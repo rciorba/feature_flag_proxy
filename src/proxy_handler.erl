@@ -5,8 +5,10 @@
 
 
 receive_data(ConnPid, MRef, StreamRef) ->
-    Data = receive_data(ConnPid, MRef, StreamRef, []),
-    iolist_to_binary(lists:reverse(Data)).
+    case receive_data(ConnPid, MRef, StreamRef, []) of
+        timeout -> timeout;
+        Data -> {ok, iolist_to_binary(lists:reverse(Data))}
+    end.
 
 
 receive_data(ConnPid, MRef, StreamRef, Accumulator) ->
@@ -21,8 +23,8 @@ receive_data(ConnPid, MRef, StreamRef, Accumulator) ->
         Any ->
             io:format("rd: ~p~n", [Any]),
             exit(unexpected_msg)
-    after 10000 ->
-        exit(timeout)
+    after 5000 ->
+        timeout
     end.
 
 
@@ -38,7 +40,10 @@ do_request(ConnPid, MRef, Path, Method, RequestHeaders, Body) ->
             %% io:format("dr-nofin:~p~n", [Status]),
             {ok, Status, Headers, <<"">>};
         {gun_response, ConnPid, StreamRef, nofin, Status, Headers} ->
-            {ok, Status, Headers, receive_data(ConnPid, MRef, StreamRef)};
+            case receive_data(ConnPid, MRef, StreamRef) of
+                {ok, Data} -> {ok, Status, Headers, Data};
+                timeout -> timeout
+            end;
         {gun_error, ConnPid, StreamRef, Error} ->
             error_logger:error_msg("Cacao!"),
             io:format("dr_error:~p~n", [Error]),
@@ -48,8 +53,8 @@ do_request(ConnPid, MRef, Path, Method, RequestHeaders, Body) ->
             exit(Reason);
         Any ->
             io:format("nomatch in dr: ~p~n", [Any])
-    after 10000 ->
-        exit(timeout)
+    after 15000 ->
+        timeout
     end.
 
 
@@ -111,19 +116,22 @@ init(Req, State) ->
                            true -> cowboy_req:read_body(Req);
                            false -> {ok, null, Req}
                        end,
-    {ok, Status, OriginalHeaders, ResponseBody} = do_request(
-                                                ConnPid,
-                                                MRef,
-                                                Path,
-                                                maps:get(method, Req0),
-                                                RequestHeaders,
-                                                Body),
-    Headers = transform_response_headers(OriginalHeaders),
-    %% io:format("ResponseHeaders: ~p~nStatus:~p~nBody:~p~n", [Headers, Status, ResponseBody]),
-    Req1 = cowboy_req:reply(Status,
-        %% #{<<"content-type">> => <<"text/html">>},
-        maps:from_list(Headers),
-        ResponseBody,
-        Req0),
+    Req1 = case do_request(
+                  ConnPid, MRef, Path, maps:get(method, Req0), RequestHeaders, Body) of
+        {ok, Status, OriginalHeaders, ResponseBody} ->
+            Headers = transform_response_headers(OriginalHeaders),
+            %% io:format("ResponseHeaders: ~p~nStatus:~p~nBody:~p~n", [Headers, Status, ResponseBody]),
+            cowboy_req:reply(Status,
+                             %% #{<<"content-type">> => <<"text/html">>},
+                             maps:from_list(Headers),
+                             ResponseBody,
+                             Req0);
+        timeout -> 
+            ResponseBody = <<"upstream timedout">>,
+            cowboy_req:reply(504,
+                             #{<<"content-length">> => integer_to_binary(byte_size(ResponseBody))},
+                             ResponseBody,
+                             Req0)
+    end,
     gun:shutdown(ConnPid),
     {ok, Req1, State}.
