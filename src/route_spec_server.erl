@@ -14,7 +14,7 @@ start_link() ->
 %%% Server functions
 init([]) ->
     RouteSpec = [
-                 route_spec(<<"^/api/v1/samples">>, {"localhost", 9090}, true, 10)
+                 route_spec(<<"^/api/v1/samples/?\\?">>, {"localhost", 9090}, true, 10),
                 ],
     {ok, {RouteSpec, {"localhost", 8080}}}. %% no treatment of info here!
 
@@ -31,7 +31,9 @@ handle_call({disable, Id}, _From, State) ->
     {RouteSpecs, Default} = State,
     case disable_routespec(Id, RouteSpecs) of
         {ok, NewRouteSpecs} -> {reply, ok, {NewRouteSpecs, Default}};
-        badid -> {reply, error, State}
+        badid ->
+            %% io:format("~p~p~n", [Id, badid]),
+            {reply, {error, erlang:iolist_to_binary(io_lib:format("No such id ~p", [Id]))}, State}
     end;
 handle_call({enable, Id}, _From, State) ->
     {RouteSpecs, Default} = State,
@@ -82,6 +84,12 @@ route_spec(Regexp, {Host, Port}, Enabled) ->
 route_spec(Regexp, {Host, Port}, Enabled, Id) ->
     #spec{regexp=Regexp, host={Host, Port}, enabled=Enabled, id=Id}.
 
+disable_routespec(Id, RouteSpecs) ->
+    toggle_routespec(Id, RouteSpecs, false).
+
+enable_routespec(Id, RouteSpecs) ->
+    toggle_routespec(Id, RouteSpecs, true).
+
 
 %%% Private API
 
@@ -97,12 +105,6 @@ match_server(Path, RouteSpecs, Default) ->
         false -> match_server(Path, Tail, Default)
     end.
 
-disable_routespec(Id, RouteSpecs) ->
-    toggle_routespec(Id, RouteSpecs, false).
-
-enable_routespec(Id, RouteSpecs) ->
-    toggle_routespec(Id, RouteSpecs, true).
-
 toggle_routespec(Id, RouteSpecs, Enabled) ->
     toggle_routespec(Id, RouteSpecs, Enabled, []).
 
@@ -110,7 +112,7 @@ toggle_routespec(_Id, [], _Enabled, _Acc) ->
     badid;
 toggle_routespec(Id, RouteSpecs, Enabled, Acc) ->
     [Spec | Tail] = RouteSpecs,
-    io:format("rs: ~p~n", [RouteSpecs]),
+    %% io:format("rs: ~p~n", [RouteSpecs]),
     case Spec#spec.id of
         Id -> New = Spec#spec{enabled = Enabled},
               Acc1 = [New | Acc],

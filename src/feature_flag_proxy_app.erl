@@ -9,7 +9,8 @@ start(_Type, _Args) ->
     %%% {HostMatch, list({PathMatch, Handler, InitialState})}
         {
          '_', [
-               {"/_config/[...]", config_handler, []},
+               {"/_config/", config_handler, []},
+               {"/_config/:routeid", ffp_enable_disable_handler, []},
                {"/[...]", proxy_handler, []}
               ]
         }
