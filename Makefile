@@ -11,3 +11,6 @@ DEP_PLUGINS = cowboy
 include erlang.mk
 
 ERLC_OPTS := $(filter-out -Werror,$(ERLC_OPTS))
+
+build-container:
+	docker build  -t rciorba/feature_flag_proxy -f Dockerfile .
