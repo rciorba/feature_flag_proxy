@@ -20,6 +20,9 @@ receive_data(ConnPid, MRef, StreamRef, Accumulator) ->
         {'DOWN', MRef, process, ConnPid, Reason} ->
             error_logger:error_msg("Oops!"),
             exit(Reason);
+        {gun_error, MRef, process, ConnPid, Reason} ->
+            error_logger:error_msg("Oops!"),
+            exit(Reason);
         Any ->
             io:format("rd: ~p~n", [Any]),
             exit(unexpected_msg)
@@ -91,13 +94,44 @@ transform_response_headers(Headers) ->
     ].
 
 
-open_connection(Path) ->
-    {Host, Port} = route_spec_server:match_server(Path),
-    io:format("~p - ~p~n", [{Host, Port}, Path]),
+open_connection({Host, Port}) ->
     {ok, ConnPid} = gun:open(Host, Port),
-    {ok, _Protocol} = gun:await_up(ConnPid),
-    MRef = monitor(process, ConnPid),
-    {ok, ConnPid, MRef}.
+    case gun:await_up(ConnPid) of
+        {ok, _Protocol} ->
+            MRef = monitor(process, ConnPid),
+            {ok, ConnPid, MRef};
+        {error, Reason} -> {error, Reason}
+    end.
+
+
+error_response(Req, Status, ResponseBody) ->
+    {Status, cowboy_req:reply(Status,
+                              #{<<"content-length">> => integer_to_binary(byte_size(ResponseBody)),
+                                <<"content-type">> => <<"text/plain">>},
+                              ResponseBody,
+                              Req)}.
+
+
+proxy_request(Req, ConnPid, MRef, Path) ->
+    RequestHeaders = transform_request_headers(maps:get(headers, Req)),
+    {ok, Body, Req0} = case cowboy_req:has_body(Req) of
+                           true -> cowboy_req:read_body(Req);
+                           false -> {ok, null, Req}
+                       end,
+    Req1 = case do_request(
+                  ConnPid, MRef, Path, maps:get(method, Req0), RequestHeaders, Body) of
+               {ok, Status, OriginalHeaders, ResponseBody} ->
+                   Headers = transform_response_headers(OriginalHeaders),
+                   cowboy_req:reply(Status,
+                                    maps:from_list(Headers),
+                                    ResponseBody,
+                                    Req0);
+               timeout ->
+                   Status = 504,
+                   error_response(Req0, Status, <<"upstream timedout">>)
+           end,
+    gun:shutdown(ConnPid),
+    {Status, Req1}.
 
 
 init(Req, State) ->
@@ -109,29 +143,28 @@ init(Req, State) ->
     Path0 = lists:join(<<"/">>, cowboy_req:path_info(Req)) ++ QStringList,
     Path = iolist_to_binary([<<"/">> | Path0]),
     %% io:format("~p~n", [Path]),
-    {ok, ConnPid, MRef} = open_connection(Path),
-    RequestHeaders = transform_request_headers(maps:get(headers, Req)),
-    %% io:format("RequestHeaders: ~p~n", [RequestHeaders]),
-    {ok, Body, Req0} = case cowboy_req:has_body(Req) of
-                           true -> cowboy_req:read_body(Req);
-                           false -> {ok, null, Req}
-                       end,
-    Req1 = case do_request(
-                  ConnPid, MRef, Path, maps:get(method, Req0), RequestHeaders, Body) of
-        {ok, Status, OriginalHeaders, ResponseBody} ->
-            Headers = transform_response_headers(OriginalHeaders),
-            %% io:format("ResponseHeaders: ~p~nStatus:~p~nBody:~p~n", [Headers, Status, ResponseBody]),
-            cowboy_req:reply(Status,
-                             %% #{<<"content-type">> => <<"text/html">>},
-                             maps:from_list(Headers),
-                             ResponseBody,
-                             Req0);
-        timeout -> 
-            ResponseBody = <<"upstream timedout">>,
-            cowboy_req:reply(504,
-                             #{<<"content-length">> => integer_to_binary(byte_size(ResponseBody))},
-                             ResponseBody,
-                             Req0)
+    HostTuple = route_spec_server:match_server(Path),
+    {Success, {Status, Req1}, Reason} = case open_connection(HostTuple) of
+                                    {ok, ConnPid, MRef} ->
+                                        {ok, proxy_request(
+                                               Req, ConnPid, MRef, Path),
+                                         null
+                                        };
+                                    {error, timeout} ->
+                                        {error, error_response(
+                                                  Req, 504, <<"Connection to upstream timed out.">>),
+                                         timeout
+                                        };
+                                    {error, Reason1} ->
+                                        {error, error_response(
+                                                  Req, 500, erlang:atom_to_binary(Reason1, utf8)),
+                                         Reason1
+                                        }
+                                end,
+    case Success of
+        ok ->
+            io:format("OK: ~p - ~p - ~p~n", [HostTuple, Status, Path]);
+        error ->
+            io:format("Err: ~p - ~p [~p] - ~p~n", [HostTuple, Status, Reason, Path])
     end,
-    gun:shutdown(ConnPid),
     {ok, Req1, State}.

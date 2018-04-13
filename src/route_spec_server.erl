@@ -1,25 +1,26 @@
 -module(route_spec_server).
 -behaviour(gen_server).
 
--export([start_link/0]).
+-export([start_link/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, code_change/3, terminate/2]).
 -export([disable_routespec/1, enable_routespec/1, get_routespecs/0,
          route_spec/2, route_spec/3, match_server/1]).
 
 -record(spec, {regexp, host, enabled=true, id}).
 
-start_link() ->
-    gen_server:start_link({local, route_srv}, ?MODULE, [], []).
+start_link(Args) ->
+    %% io:format("SL: ~p~n", [Args]),
+    gen_server:start_link({local, route_srv}, ?MODULE, Args, []).
 
 %%% Server functions
-init([]) ->
-    RouteSpec = [
-                 route_spec(<<"^/api/v1/samples/?\\?">>, {"localhost", 9090}, true, 10),
-                ],
-    {ok, {RouteSpec, {"localhost", 8080}}}. %% no treatment of info here!
+init(RouteCfg) ->
+    %% io:format("INIT: ~p~n", [RouteCfg]),
+    #{<<"routes">> := Routes, <<"default">> := Default} = RouteCfg,
+    RouteSpecs = [route_spec(Route) || Route <- Routes],
+    {ok, {RouteSpecs, Default}}. %% no treatment of info here!
 
 handle_call(get, _From, State) ->
-    {Routes, Default} = State,
+    {Routes, _Default} = State,
     {reply, Routes, State};
 handle_call({match, Path}, _From, State) ->
     {RouteSpecs, Default} = State,
@@ -75,6 +76,15 @@ get_routespecs() ->
 match_server(Path) ->
     gen_server:call(route_srv, {match, Path}).
 
+route_spec(Map) when is_map(Map) ->
+    #{
+      <<"regex">> := Regexp,
+      <<"id">> := Id,
+      <<"enabled">> := Enabled,
+      <<"host">> := Host
+     } = Map,
+    route_spec(Regexp, parse_host(Host), Enabled, Id).
+
 route_spec(Regexp, {Host, Port}) ->
     route_spec(Regexp, {Host, Port}, true).
 
@@ -92,6 +102,17 @@ enable_routespec(Id, RouteSpecs) ->
 
 
 %%% Private API
+
+parse_host(HostBin) ->
+    [Schema, HostPort] = binary:split(HostBin, <<"://">>),
+    case binary:split(HostPort, <<":">>) of
+        [Host] -> case Schema of
+                      <<"http">> -> {Host, 80};
+                      <<"https">> -> {Host, 443}
+                  end;
+        [Host, Port] -> {Host, Port}
+    end.
+
 
 match_server(_Path, [], Default) ->
     Default;
