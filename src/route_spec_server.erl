@@ -17,7 +17,7 @@ init(RouteCfg) ->
     %% io:format("INIT: ~p~n", [RouteCfg]),
     #{<<"routes">> := Routes, <<"default">> := Default} = RouteCfg,
     RouteSpecs = [route_spec(Route) || Route <- Routes],
-    {ok, {RouteSpecs, Default}}. %% no treatment of info here!
+    {ok, {RouteSpecs, parse_host(Default)}}. %% no treatment of info here!
 
 handle_call(get, _From, State) ->
     {Routes, _Default} = State,
@@ -107,10 +107,10 @@ parse_host(HostBin) ->
     [Schema, HostPort] = binary:split(HostBin, <<"://">>),
     case binary:split(HostPort, <<":">>) of
         [Host] -> case Schema of
-                      <<"http">> -> {Host, 80};
-                      <<"https">> -> {Host, 443}
+                      <<"http">> -> {erlang:binary_to_list(Host), 80};
+                      <<"https">> -> {erlang:binary_to_list(Host), 443}
                   end;
-        [Host, Port] -> {Host, Port}
+        [Host, Port] -> {erlang:binary_to_list(Host), erlang:binary_to_integer(Port)}
     end.
 
 
