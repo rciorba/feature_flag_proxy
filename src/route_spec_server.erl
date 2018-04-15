@@ -1,7 +1,7 @@
 -module(route_spec_server).
 -behaviour(gen_server).
 
--export([start_link/1]).
+-export([start_link/1, stop/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, code_change/3, terminate/2]).
 -export([disable_routespec/1, enable_routespec/1, get_routespecs/0,
          route_spec/2, route_spec/3, match_server/1]).
@@ -11,6 +11,9 @@
 start_link(Args) ->
     %% io:format("SL: ~p~n", [Args]),
     gen_server:start_link({local, route_srv}, ?MODULE, Args, []).
+
+stop() ->
+    gen_server:call(route_srv, terminate).
 
 %%% Server functions
 init(RouteCfg) ->
