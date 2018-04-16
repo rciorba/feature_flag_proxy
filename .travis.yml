@@ -1,0 +1,12 @@
+language: erlang
+
+otp_release:
+  - 20.3
+  - 19.0
+
+install:
+  - "make"
+
+script: make tests
+
+sudo: false
