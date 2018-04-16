@@ -118,20 +118,22 @@ proxy_request(Req, ConnPid, MRef, Path) ->
                            true -> cowboy_req:read_body(Req);
                            false -> {ok, null, Req}
                        end,
-    Req1 = case do_request(
-                  ConnPid, MRef, Path, maps:get(method, Req0), RequestHeaders, Body) of
-               {ok, Status, OriginalHeaders, ResponseBody} ->
-                   Headers = transform_response_headers(OriginalHeaders),
-                   cowboy_req:reply(Status,
-                                    maps:from_list(Headers),
-                                    ResponseBody,
-                                    Req0);
-               timeout ->
-                   Status = 504,
-                   error_response(Req0, Status, <<"upstream timedout">>)
+    {Status1, Req1} = case do_request(
+                           ConnPid, MRef, Path, maps:get(method, Req0), RequestHeaders, Body) of
+                        {ok, Status, OriginalHeaders, ResponseBody} ->
+                            Headers = transform_response_headers(OriginalHeaders),
+                            {Status,
+                             cowboy_req:reply(Status,
+                                              maps:from_list(Headers),
+                                              ResponseBody,
+                                              Req0)};
+                        timeout ->
+                            Status = 504,
+                            {Status,
+                             error_response(Req0, Status, <<"upstream timedout">>)}
            end,
     gun:shutdown(ConnPid),
-    {Status, Req1}.
+    {Status1, Req1}.
 
 
 init(Req, State) ->
