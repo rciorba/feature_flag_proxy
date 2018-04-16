@@ -4,3 +4,4 @@
 /ebin/
 /feature_flag_proxy.d
 /config.json
+*.beam
