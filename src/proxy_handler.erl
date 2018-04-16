@@ -61,10 +61,16 @@ do_request(ConnPid, MRef, Path, Method, RequestHeaders, Body) ->
     end.
 
 
-transform_request_headers(Map) ->
-    [{K, binary:bin_to_list(V)} ||
-        {K, V} <- filter_proxy_headers(maps:to_list(Map))
-    ].
+host_tuple_to_string(HostTuple) ->
+    {Host, Port} = HostTuple,
+    Host ++ ":" ++ erlang:integer_to_list(Port).
+
+
+transform_request_headers(Map, HostTuple) ->
+    Headers = [{K, binary:bin_to_list(V)} ||
+                  {K, V} <- filter_proxy_headers(maps:to_list(Map))
+              ],
+    [ {"Host", host_tuple_to_string(HostTuple)} | Headers].
 
 
 filter_proxy_headers(Headers) ->
@@ -77,7 +83,8 @@ filter_proxy_headers(Headers) ->
         Name =/= <<"proxy-authorization">>,
         Name =/= <<"proxy-authentication">>,
         Name =/= <<"trailer">>,
-        Name =/= <<"upgrade">>
+        Name =/= <<"upgrade">>,
+        Name =/= <<"host">>
     ].
 
 fix_header_name(HeaderName) ->
@@ -112,8 +119,8 @@ error_response(Req, Status, ResponseBody) ->
                               Req)}.
 
 
-proxy_request(Req, ConnPid, MRef, Path) ->
-    RequestHeaders = transform_request_headers(maps:get(headers, Req)),
+proxy_request(Req, ConnPid, MRef, Path, HostTuple) ->
+    RequestHeaders = transform_request_headers(maps:get(headers, Req), HostTuple),
     {ok, Body, Req0} = case cowboy_req:has_body(Req) of
                            true -> cowboy_req:read_body(Req);
                            false -> {ok, null, Req}
@@ -149,7 +156,7 @@ init(Req, State) ->
     {Success, {Status, Req1}, Reason} = case open_connection(HostTuple) of
                                     {ok, ConnPid, MRef} ->
                                         {ok, proxy_request(
-                                               Req, ConnPid, MRef, Path),
+                                               Req, ConnPid, MRef, Path, HostTuple),
                                          null
                                         };
                                     {error, timeout} ->
