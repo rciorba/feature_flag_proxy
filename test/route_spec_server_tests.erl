@@ -21,6 +21,12 @@ route_spec_fixture() ->
                          <<"id">> => 30,
                          <<"enabled">> => true,
                          <<"host">> => <<"http://30:8030">>
+                        },
+                       #{
+                         <<"regex">> => <<"/path/noport">>,
+                         <<"id">> => 40,
+                         <<"enabled">> => true,
+                         <<"host">> => <<"http://40">>
                         }
                       ],
       <<"default">> => <<"http://localhost:8000">>
@@ -41,6 +47,7 @@ test_default_routes(_) ->
      ?_assertEqual({"10", 8010}, route_spec_server:match_server(<<"/path/foo">>)),
      ?_assertEqual({"localhost", 8000}, route_spec_server:match_server(<<"/path/bar">>)),
      ?_assertEqual({"30", 8030}, route_spec_server:match_server(<<"/path/bar/foo">>)),
+     ?_assertEqual({"40", 80}, route_spec_server:match_server(<<"/path/noport">>)),
      ?_assertEqual({"localhost", 8000}, route_spec_server:match_server(<<"/bs">>))
     ].
 

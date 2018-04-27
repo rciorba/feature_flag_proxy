@@ -48,7 +48,6 @@ do_request(ConnPid, MRef, Path, Method, RequestHeaders, Body) ->
                 timeout -> timeout
             end;
         {gun_error, ConnPid, StreamRef, Error} ->
-            error_logger:error_msg("Cacao!"),
             io:format("dr_error:~p~n", [Error]),
             exit(Error);
         {'DOWN', MRef, process, ConnPid, Reason} ->
@@ -138,7 +137,7 @@ proxy_request(Req, ConnPid, MRef, Path, HostTuple) ->
                             Status = 504,
                             {Status,
                              error_response(Req0, Status, <<"upstream timedout">>)}
-           end,
+                      end,
     gun:shutdown(ConnPid),
     {Status1, Req1}.
 
