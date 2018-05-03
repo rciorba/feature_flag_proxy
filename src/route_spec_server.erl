@@ -4,9 +4,9 @@
 -export([start_link/1, stop/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, code_change/3, terminate/2]).
 -export([disable_routespec/1, enable_routespec/1, get_routespecs/0,
-         route_spec/2, route_spec/3, match_server/1]).
+         route_spec/2, route_spec/3, match_server/2]).
 
--record(spec, {regexp, host, enabled=true, id}).
+-record(spec, {regexp, host, enabled=true, methods, id}).
 
 start_link(Args) ->
     %% io:format("SL: ~p~n", [Args]),
@@ -25,9 +25,9 @@ init(RouteCfg) ->
 handle_call(get, _From, State) ->
     {Routes, _Default} = State,
     {reply, Routes, State};
-handle_call({match, Path}, _From, State) ->
+handle_call({match, Path, Method}, _From, State) ->
     {RouteSpecs, Default} = State,
-    {reply, match_server(Path, RouteSpecs, Default), State};
+    {reply, match_server(Path, Method, RouteSpecs, Default), State};
 handle_call({add, RouteSpec}, _From, State) ->
     NewState = State ++ [RouteSpec],
     {reply, ok, NewState};
@@ -76,8 +76,8 @@ enable_routespec(Id) ->
 get_routespecs() ->
     gen_server:call(route_srv, get).
 
-match_server(Path) ->
-    gen_server:call(route_srv, {match, Path}).
+match_server(Path, Method) ->
+    gen_server:call(route_srv, {match, Path, Method}).
 
 route_spec(Map) when is_map(Map) ->
     #{
@@ -86,7 +86,8 @@ route_spec(Map) when is_map(Map) ->
       <<"enabled">> := Enabled,
       <<"host">> := Host
      } = Map,
-    route_spec(Regexp, parse_host(Host), Enabled, Id).
+    Methods = maps:get(<<"methods">>, Map, any),
+    route_spec(Regexp, parse_host(Host), Enabled, Id, Methods).
 
 route_spec(Regexp, {Host, Port}) ->
     route_spec(Regexp, {Host, Port}, true).
@@ -95,7 +96,10 @@ route_spec(Regexp, {Host, Port}, Enabled) ->
     route_spec(Regexp, {Host, Port}, Enabled, rand:uniform(576460752303423487)).
 
 route_spec(Regexp, {Host, Port}, Enabled, Id) ->
-    #spec{regexp=Regexp, host={Host, Port}, enabled=Enabled, id=Id}.
+    route_spec(Regexp, {Host, Port}, Enabled, Id, any).
+
+route_spec(Regexp, {Host, Port}, Enabled, Id, Methods) ->
+    #spec{regexp=Regexp, host={Host, Port}, enabled=Enabled, methods=Methods, id=Id}.
 
 disable_routespec(Id, RouteSpecs) ->
     toggle_routespec(Id, RouteSpecs, false).
@@ -116,18 +120,33 @@ parse_host(HostBin) ->
         [Host, Port] -> {erlang:binary_to_list(Host), erlang:binary_to_integer(Port)}
     end.
 
+match_method(_Method, any)->
+    true;
+match_method(Method, Methods) ->
+     lists:member(Method, Methods).
 
-match_server(_Path, [], Default) ->
+
+
+match_server(_Path, _Method, [], Default) ->
     Default;
-match_server(Path, RouteSpecs, Default) ->
+match_server(Path, Method, RouteSpecs, Default) ->
     [Spec | Tail] = RouteSpecs,
-    case Spec#spec.enabled of
+    io:format("Method:~p in ~p ?~n", [Method, Spec#spec.methods]),
+    Match = case Spec#spec.enabled of
         true -> case re:run(Path, Spec#spec.regexp) of
-                    {match, _} -> Spec#spec.host;
-                    nomatch -> match_server(Path, Tail, Default)
+                    {match, _} -> case match_method(Method, Spec#spec.methods) of
+                                      true -> Spec#spec.host;
+                                      _ -> null
+                                  end;
+                    nomatch -> null
                 end;
-        false -> match_server(Path, Tail, Default)
+        false -> null
+    end,
+    case Match of
+        null -> match_server(Path, Method, Tail, Default);
+        _ -> Match
     end.
+
 
 toggle_routespec(Id, RouteSpecs, Enabled) ->
     toggle_routespec(Id, RouteSpecs, Enabled, []).

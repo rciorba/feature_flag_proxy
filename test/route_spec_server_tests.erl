@@ -8,7 +8,8 @@ route_spec_fixture() ->
                          <<"regex">> => <<"/path/foo">>,
                          <<"id">> => 10,
                          <<"enabled">> => true,
-                         <<"host">> => <<"http://10:8010">>
+                         <<"host">> => <<"http://10:8010">>,
+                         <<"methods">> => [<<"GET">>, <<"POST">>]
                         },
                        #{
                          <<"regex">> => <<"/path/bar">>,
@@ -44,23 +45,25 @@ stop(Pid) ->
 
 test_default_routes(_) ->
     [
-     ?_assertEqual({"10", 8010}, route_spec_server:match_server(<<"/path/foo">>)),
-     ?_assertEqual({"localhost", 8000}, route_spec_server:match_server(<<"/path/bar">>)),
-     ?_assertEqual({"30", 8030}, route_spec_server:match_server(<<"/path/bar/foo">>)),
-     ?_assertEqual({"40", 80}, route_spec_server:match_server(<<"/path/noport">>)),
-     ?_assertEqual({"localhost", 8000}, route_spec_server:match_server(<<"/bs">>))
+     ?_assertEqual({"10", 8010}, route_spec_server:match_server(<<"/path/foo">>, <<"GET">>)),
+     ?_assertEqual({"10", 8010}, route_spec_server:match_server(<<"/path/foo">>, <<"POST">>)),
+     ?_assertEqual({"localhost", 8000}, route_spec_server:match_server(<<"/path/foo">>, <<"PUT">>)),
+     ?_assertEqual({"localhost", 8000}, route_spec_server:match_server(<<"/path/bar">>, <<"GET">>)),
+     ?_assertEqual({"30", 8030}, route_spec_server:match_server(<<"/path/bar/foo">>, <<"GET">>)),
+     ?_assertEqual({"40", 80}, route_spec_server:match_server(<<"/path/noport">>, <<"GET">>)),
+     ?_assertEqual({"localhost", 8000}, route_spec_server:match_server(<<"/bs">>, <<"GET">>))
     ].
 
 test_disable_route(Pid) ->
     ?debugFmt("test_disable:~p", [Pid]),
     ok = route_spec_server:disable_routespec(10),
-    Host = route_spec_server:match_server(<<"/path/foo">>),
+    Host = route_spec_server:match_server(<<"/path/foo">>, <<"GET">>),
     [?_assertEqual({"localhost", 8000}, Host)].
 
 test_enable_route(Pid) ->
     ?debugFmt("test_enable:~p", [Pid]),
     ok = route_spec_server:enable_routespec(20),
-    Host = route_spec_server:match_server(<<"/path/bar">>),
+    Host = route_spec_server:match_server(<<"/path/bar">>, <<"GET">>),
     [?_assertEqual({"20", 8020}, Host)].
 
 route_spec_test_()->

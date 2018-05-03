@@ -150,8 +150,9 @@ init(Req, State) ->
                   end,
     Path0 = lists:join(<<"/">>, cowboy_req:path_info(Req)) ++ QStringList,
     Path = iolist_to_binary([<<"/">> | Path0]),
+    Method = maps:get(method, Req),
     %% io:format("~p~n", [Path]),
-    HostTuple = route_spec_server:match_server(Path),
+    HostTuple = route_spec_server:match_server(Path, Method),
     {Success, {Status, Req1}, Reason} = case open_connection(HostTuple) of
                                     {ok, ConnPid, MRef} ->
                                         {ok, proxy_request(
