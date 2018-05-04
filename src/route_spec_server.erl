@@ -131,7 +131,7 @@ match_server(_Path, _Method, [], Default) ->
     Default;
 match_server(Path, Method, RouteSpecs, Default) ->
     [Spec | Tail] = RouteSpecs,
-    io:format("Method:~p in ~p ?~n", [Method, Spec#spec.methods]),
+    %% io:format("Method:~p in ~p ?~n", [Method, Spec#spec.methods]),
     Match = case Spec#spec.enabled of
         true -> case re:run(Path, Spec#spec.regexp) of
                     {match, _} -> case match_method(Method, Spec#spec.methods) of

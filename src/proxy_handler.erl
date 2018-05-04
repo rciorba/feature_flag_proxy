@@ -172,8 +172,8 @@ init(Req, State) ->
                                 end,
     case Success of
         ok ->
-            io:format("OK: ~p - ~p - ~p~n", [HostTuple, Status, Path]);
+            io:format("OK: ~p - ~p - ~p ~p~n", [HostTuple, Status, Path, Method]);
         error ->
-            io:format("Err: ~p - ~p [~p] - ~p~n", [HostTuple, Status, Reason, Path])
+            io:format("Err: ~p - ~p [~p] - ~p ~p~n", [HostTuple, Status, Reason, Path, Method])
     end,
     {ok, Req1, State}.
