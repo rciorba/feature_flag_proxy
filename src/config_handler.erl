@@ -17,9 +17,10 @@ init(Req0, State) ->
                                      (erlang:integer_to_binary(Port))/binary
                                    >>,
                      <<"enabled">> => Enabled,
+                     <<"methods">> => Methods,
                      <<"id">> => Id
                     }
-                   || {spec, Regexp, {Host, Port}, Enabled, Id} <- route_spec_server:get_routespecs()]},
+                   || {spec, Regexp, {Host, Port}, Enabled, Methods, Id} <- route_spec_server:get_routespecs()]},
     Req1 = cowboy_req:reply(
              200,
              #{<<"content-type">> => <<"application/json">>},
