@@ -1,49 +1,76 @@
 -module(route_spec_server).
 -behaviour(gen_server).
+-include_lib("eunit/include/eunit.hrl").
 
--export([start_link/1, stop/0]).
+-export([start/1, start_link/1, stop/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, code_change/3, terminate/2]).
 -export([disable_routespec/1, enable_routespec/1, get_routespecs/0,
          route_spec/2, route_spec/3, match_server/2]).
 
 -record(spec, {regexp, host, enabled=true, methods, id}).
 
+start(Args) ->
+    Success = gen_server:start({local, route_srv}, ?MODULE, Args, []),
+    io:format("SL: ~p~n -> ~p~n", [Args, Success]),
+    Success.
+
 start_link(Args) ->
-    %% io:format("SL: ~p~n", [Args]),
-    gen_server:start_link({local, route_srv}, ?MODULE, Args, []).
+    Success = gen_server:start_link({local, route_srv}, ?MODULE, Args, []),
+    io:format("SL: ~p~n -> ~p~n", [Args, Success]),
+    Success.
 
 stop() ->
     gen_server:call(route_srv, terminate).
 
+parse_alias(Alias) ->
+    %% ?debugFmt("parse_alias:~p", [Alias]),
+    ParseHosts = fun (_, Host) ->
+                         parse_host(Host)
+                 end,
+    #{
+      hosts => maps:map(ParseHosts, maps:get(<<"hosts">>, Alias)),
+      current => maps:get(<<"current">>, Alias)
+     }.
+parse_aliases(Aliases) ->
+    %% ?debugFmt("parse_aliases:~p", [Aliases]),
+    maps:map(fun(_, V)-> parse_alias(V) end, Aliases).
+
 %%% Server functions
 init(RouteCfg) ->
-    %% io:format("INIT: ~p~n", [RouteCfg]),
-    #{<<"routes">> := Routes, <<"default">> := Default} = RouteCfg,
+    io:format("INIT: ~p~n", [RouteCfg]),
+    #{
+      <<"routes">> := Routes,
+      <<"default">> := Default
+     } = RouteCfg,
+    Aliases1 = maps:get(<<"blue-green">>, RouteCfg, #{}),
+    Aliases2 = parse_aliases(Aliases1),
+    %% ?debugFmt("pa:~p", [Aliases2]),
     RouteSpecs = [route_spec(Route) || Route <- Routes],
-    {ok, {RouteSpecs, parse_host(Default)}}. %% no treatment of info here!
+    {ok, {RouteSpecs, parse_host(Default), Aliases2}}. %% no treatment of info here!
 
 handle_call(get, _From, State) ->
-    {Routes, _Default} = State,
+    {Routes, _Default, _Aliases} = State,
     {reply, Routes, State};
 handle_call({match, Path, Method}, _From, State) ->
-    {RouteSpecs, Default} = State,
-    {reply, match_server(Path, Method, RouteSpecs, Default), State};
-handle_call({add, RouteSpec}, _From, State) ->
-    NewState = State ++ [RouteSpec],
-    {reply, ok, NewState};
+    %% ?debugFmt("handle_call:~p", {match, Path, Method}),
+    {RouteSpecs, Default, Aliases} = State,
+    {reply, match_server(Path, Method, RouteSpecs, Default, Aliases), State};
+%% handle_call({add, RouteSpec}, _From, State) ->
+%%     NewState = State ++ [RouteSpec],
+%%     {reply, ok, NewState};
 handle_call({disable, Id}, _From, State) ->
-    {RouteSpecs, Default} = State,
+    {RouteSpecs, Default, Aliases} = State,
     case disable_routespec(Id, RouteSpecs) of
-        {ok, NewRouteSpecs} -> {reply, ok, {NewRouteSpecs, Default}};
+        {ok, NewRouteSpecs} -> {reply, ok, {NewRouteSpecs, Default, Aliases}};
         badid ->
             %% io:format("~p~p~n", [Id, badid]),
             {reply, {error, erlang:iolist_to_binary(io_lib:format("No such id ~p", [Id]))}, State}
     end;
 handle_call({enable, Id}, _From, State) ->
-    {RouteSpecs, Default} = State,
+    {RouteSpecs, Default, Aliases} = State,
     case enable_routespec(Id, RouteSpecs) of
-        {ok, NewRouteSpecs} -> {reply, ok, {NewRouteSpecs, Default}};
-        badid -> {reply, error, {RouteSpecs, Default}}
+        {ok, NewRouteSpecs} -> {reply, ok, {NewRouteSpecs, Default, Aliases}};
+        badid -> {reply, error, {RouteSpecs, Default, Aliases}}
     end;
 handle_call(terminate, _From, State) ->
     {stop, normal, ok, State}.
@@ -57,6 +84,7 @@ handle_info(Msg, State) ->
     {noreply, State}.
 
 terminate(normal, _State) ->
+    io:format("Terminate: ~n", []),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -79,6 +107,9 @@ get_routespecs() ->
 match_server(Path, Method) ->
     gen_server:call(route_srv, {match, Path, Method}).
 
+update_alias(Alias, Host) ->
+    gen_server:call(route_srv, {update_alias, Alias, Host}).
+
 route_spec(Map) when is_map(Map) ->
     #{
       <<"regex">> := Regexp,
@@ -89,17 +120,17 @@ route_spec(Map) when is_map(Map) ->
     Methods = maps:get(<<"methods">>, Map, any),
     route_spec(Regexp, parse_host(Host), Enabled, Id, Methods).
 
-route_spec(Regexp, {Host, Port}) ->
-    route_spec(Regexp, {Host, Port}, true).
+route_spec(Regexp, Host) ->
+    route_spec(Regexp, Host, true).
 
-route_spec(Regexp, {Host, Port}, Enabled) ->
-    route_spec(Regexp, {Host, Port}, Enabled, rand:uniform(576460752303423487)).
+route_spec(Regexp, Host, Enabled) ->
+    route_spec(Regexp, Host, Enabled, rand:uniform(576460752303423487)).
 
-route_spec(Regexp, {Host, Port}, Enabled, Id) ->
-    route_spec(Regexp, {Host, Port}, Enabled, Id, any).
+route_spec(Regexp, Host, Enabled, Id) ->
+    route_spec(Regexp, Host, Enabled, Id, any).
 
-route_spec(Regexp, {Host, Port}, Enabled, Id, Methods) ->
-    #spec{regexp=Regexp, host={Host, Port}, enabled=Enabled, methods=Methods, id=Id}.
+route_spec(Regexp, Host, Enabled, Id, Methods) ->
+    #spec{regexp=Regexp, host=Host, enabled=Enabled, methods=Methods, id=Id}.
 
 disable_routespec(Id, RouteSpecs) ->
     toggle_routespec(Id, RouteSpecs, false).
@@ -110,7 +141,15 @@ enable_routespec(Id, RouteSpecs) ->
 
 %%% Private API
 
+parse_host(<< $$, HostBin/bits >>) ->
+    io:format("================================ ~n", []),
+    io:format("parse_host1: ~p~n", [HostBin]),
+    io:format("================================ ~n", []),
+    HostBin;
 parse_host(HostBin) ->
+    io:format("================================ ~n", []),
+    io:format("parse_host2: ~p~n", [HostBin]),
+    io:format("================================ ~n", []),
     [Schema, HostPort] = binary:split(HostBin, <<"://">>),
     case binary:split(HostPort, <<":">>) of
         [Host] -> case Schema of
@@ -120,22 +159,41 @@ parse_host(HostBin) ->
         [Host, Port] -> {erlang:binary_to_list(Host), erlang:binary_to_integer(Port)}
     end.
 
+
+get_any_active(Hosts, [])->
+    null;
+get_any_active(Hosts, [Host | _])->
+    maps:get(Host, Hosts).
+
+
+resolve_alias(Host, _Aliases) when is_tuple(Host) ->
+    Host;
+resolve_alias(Host, Aliases) when is_binary(Host) ->
+    case maps:get(Host, Aliases, badalias) of
+        badalias ->
+            badalias;
+        Alias ->
+            %% Active = maps:get(active, Alias, []),
+            Hosts = maps:get(hosts, Alias),
+            Current = maps:get(current, Alias),
+            maps:get(Current, Hosts)
+    end.
+
 match_method(_Method, any)->
     true;
 match_method(Method, Methods) ->
      lists:member(Method, Methods).
 
 
-
-match_server(_Path, _Method, [], Default) ->
+match_server(_Path, _Method, [], Default, _Aliases) ->
     Default;
-match_server(Path, Method, RouteSpecs, Default) ->
+match_server(Path, Method, RouteSpecs, Default, Aliases) ->
     [Spec | Tail] = RouteSpecs,
     %% io:format("Method:~p in ~p ?~n", [Method, Spec#spec.methods]),
     Match = case Spec#spec.enabled of
         true -> case re:run(Path, Spec#spec.regexp) of
                     {match, _} -> case match_method(Method, Spec#spec.methods) of
-                                      true -> Spec#spec.host;
+                                      true -> resolve_alias(Spec#spec.host, Aliases);
                                       _ -> null
                                   end;
                     nomatch -> null
@@ -143,7 +201,7 @@ match_server(Path, Method, RouteSpecs, Default) ->
         false -> null
     end,
     case Match of
-        null -> match_server(Path, Method, Tail, Default);
+        null -> match_server(Path, Method, Tail, Default, Aliases);
         _ -> Match
     end.
 

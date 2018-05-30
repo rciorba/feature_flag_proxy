@@ -1,0 +1,34 @@
+{
+    "route_spec_server": {
+        "routes": [
+            {
+                "regex": "^/api/v1/samples/?\\?",
+                "host": "$spandex",
+                "enabled": false,
+                "id": 10
+            },
+            {
+                "regex": "^/api/v1/samples/?$",
+                "host": "$spandex",
+                "enabled": false,
+                "id": 11
+            },
+            {
+                "regex": "^/static/",
+                "host": "http://localhost:8080",
+                "enabled": true,
+                "id": 30
+            }
+        ],
+        "default": "http://android-clusters-ui.plant.nimbus",
+        "blue-green": {
+            "spandex": {
+                "hosts": {
+                    "blue": "http://localhost:9090",
+                    "green": "http://localhost:9090"
+                },
+                "current": "blue"
+            }
+        }
+    }
+}

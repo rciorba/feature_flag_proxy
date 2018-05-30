@@ -1,6 +1,7 @@
 -module(feature_flag_proxy_app).
 -behaviour(application).
 
+%% -compile(export_all).
 -export([start/2]).
 -export([stop/1]).
 
@@ -27,7 +28,7 @@ read_config(CfgPath) ->
 
 
 start(_Type, _Args) ->
-    feature_flag_proxy_sup:start_link(read_config()),
+    {ok, _Pid} = feature_flag_proxy_sup:start_link(read_config()),
     Dispatch = cowboy_router:compile([
     %%% {HostMatch, list({PathMatch, Handler, InitialState})}
         {

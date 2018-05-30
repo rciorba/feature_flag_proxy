@@ -4,64 +4,7 @@
 -export([init/2]).
 
 
-receive_data(ConnPid, MRef, StreamRef) ->
-    case receive_data(ConnPid, MRef, StreamRef, []) of
-        timeout -> timeout;
-        Data -> {ok, iolist_to_binary(lists:reverse(Data))}
-    end.
-
-
-receive_data(ConnPid, MRef, StreamRef, Accumulator) ->
-    receive
-        {gun_data, ConnPid, StreamRef, nofin, Data} ->
-            receive_data(ConnPid, MRef, StreamRef, [Data | Accumulator]);
-        {gun_data, ConnPid, StreamRef, fin, Data} ->
-            [Data | Accumulator];
-        {'DOWN', MRef, process, ConnPid, Reason} ->
-            error_logger:error_msg("Oops!"),
-            exit(Reason);
-        {gun_error, MRef, process, ConnPid, Reason} ->
-            error_logger:error_msg("Oops!"),
-            exit(Reason);
-        Any ->
-            io:format("rd: ~p~n", [Any]),
-            exit(unexpected_msg)
-    after 5000 ->
-        timeout
-    end.
-
-
-do_request(ConnPid, MRef, Path, Method, RequestHeaders, Body) ->
-    %% io:format("Method:~p~nPath:~p~nBody:~p~nHeaders:~p~n", [Method, Path, Body, RequestHeaders]),
-    StreamRef = case Body of
-                    null -> gun:request(ConnPid, Method, Path, RequestHeaders);
-                    _ -> gun:request(ConnPid, Method, Path, RequestHeaders, Body)
-                end,
-    %% io:format("StreamRef:~p~n", [StreamRef]),
-    receive
-        {gun_response, ConnPid, StreamRef, fin, Status, Headers} ->
-            %% io:format("dr-nofin:~p~n", [Status]),
-            {ok, Status, Headers, <<"">>};
-        {gun_response, ConnPid, StreamRef, nofin, Status, Headers} ->
-            case receive_data(ConnPid, MRef, StreamRef) of
-                {ok, Data} -> {ok, Status, Headers, Data};
-                timeout -> timeout
-            end;
-        {gun_error, ConnPid, StreamRef, Error} ->
-            io:format("dr_error:~p~n", [Error]),
-            exit(Error);
-        {'DOWN', MRef, process, ConnPid, Reason} ->
-            error_logger:error_msg("Oops!"),
-            exit(Reason);
-        Any ->
-            io:format("nomatch in dr: ~p~n", [Any])
-    after 15000 ->
-        timeout
-    end.
-
-
-host_tuple_to_string(HostTuple) ->
-    {Host, Port} = HostTuple,
+host_tuple_to_string({Host, Port}) ->
     Host ++ ":" ++ erlang:integer_to_list(Port).
 
 
@@ -100,16 +43,6 @@ transform_response_headers(Headers) ->
     ].
 
 
-open_connection({Host, Port}) ->
-    {ok, ConnPid} = gun:open(Host, Port),
-    case gun:await_up(ConnPid) of
-        {ok, _Protocol} ->
-            MRef = monitor(process, ConnPid),
-            {ok, ConnPid, MRef};
-        {error, Reason} -> {error, Reason}
-    end.
-
-
 error_response(Req, Status, ResponseBody) ->
     {Status, cowboy_req:reply(Status,
                               #{<<"content-length">> => integer_to_binary(byte_size(ResponseBody)),
@@ -124,7 +57,7 @@ proxy_request(Req, ConnPid, MRef, Path, HostTuple) ->
                            true -> cowboy_req:read_body(Req);
                            false -> {ok, null, Req}
                        end,
-    {Status1, Req1} = case do_request(
+    {Status1, Req1} = case requests:do_request(
                            ConnPid, MRef, Path, maps:get(method, Req0), RequestHeaders, Body) of
                         {ok, Status, OriginalHeaders, ResponseBody} ->
                             Headers = transform_response_headers(OriginalHeaders),
@@ -153,7 +86,7 @@ init(Req, State) ->
     Method = maps:get(method, Req),
     %% io:format("~p~n", [Path]),
     HostTuple = route_spec_server:match_server(Path, Method),
-    {Success, {Status, Req1}, Reason} = case open_connection(HostTuple) of
+    {Success, {Status, Req1}, Reason} = case requests:open_connection(HostTuple) of
                                     {ok, ConnPid, MRef} ->
                                         {ok, proxy_request(
                                                Req, ConnPid, MRef, Path, HostTuple),
