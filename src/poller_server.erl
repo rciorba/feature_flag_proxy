@@ -1,28 +1,26 @@
 -module(poller_server).
 -behaviour(gen_server).
 
--compile(export_all).
 -include_lib("eunit/include/eunit.hrl").
 
--export([start/1, start_link/1, stop/0]).
+-export([start/2, start_link/2, stop/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, code_change/3, terminate/2]).
--export([poll_hosts/1]).
+-export([poll_hosts/2]).
 
-start_link(Args) ->
-    gen_server:start_link({local, poller_srv}, ?MODULE, Args, []).
+start_link(AliasCfg, Timeout) ->
+    gen_server:start_link({local, poller_srv}, ?MODULE, {AliasCfg, Timeout}, []).
 
-start(Args) ->
-    %% ?debugFmt("poller_server:start(~p)~n", [Args]),
-    gen_server:start({local, poller_srv}, ?MODULE, Args, []).
+start(AliasCfg, Timeout) ->
+    %% ?debugFmt("poller_server:start(~p)~n", [{AliasCfg, Timeout}]),
+    gen_server:start({local, poller_srv}, ?MODULE, {AliasCfg, Timeout}, []).
 
 stop() ->
     gen_server:call(poller_srv, terminate).
 
 
-poll_host({URL, State, Aliases}) ->
+poll_host({URL, _State, Aliases}, Timeout) ->
     {Host, Port, Path} = parse_url(URL),
-    ?debugFmt("cocos:~p", [{Host, Port, Path}]),
-    NewState = case requests:open_connection({Host, Port}) of
+    NewState = case requests:open_connection({Host, Port}, Timeout) of
                    {ok, ConnPid, MRef} ->
                        Resp = case requests:do_request(
                                      ConnPid,
@@ -34,9 +32,10 @@ poll_host({URL, State, Aliases}) ->
                                      ]
                                     ) of
                                   {ok, 200, _Headers, _Body} ->
+                                      %% ?debugFmt("~n~nup: ~p~n~p~n~n", [URL, {200, Headers, Body}]),
                                       up;
-                                  {ok, Status, Headers, Body} ->
-                                      ?debugFmt("badstatus:~p", [{Status, Headers, Body}]),
+                                  {ok, _Status, _Headers, _Body} ->
+                                      %% ?debugFmt("badstatus:~p", [{Status, Headers, Body}]),
                                       down;
                                   timeout ->
                                       down
@@ -49,16 +48,16 @@ poll_host({URL, State, Aliases}) ->
                end,
     {URL, NewState, Aliases}.
 
-poll_hosts([]) ->
+poll_hosts([], _Timeout) ->
     [];
-poll_hosts([Host | Tail]) ->
-    [poll_host(Host) | poll_hosts(Tail)].
+poll_hosts([Host | Tail], Timeout) ->
+    [poll_host(Host, Timeout) | poll_hosts(Tail, Timeout)].
 
 %%% Private API
 
 
 parse_url(URL) ->
-    ?debugFmt("parse_url: ~p", [URL]),
+    %% ?debugFmt("parse_url: ~p", [URL]),
     [Schema, Rest1] = binary:split(URL, <<"://">>),
     [HostPort, Path] = case binary:split(Rest1, <<"/">>) of
                            [HostPort0] ->  [HostPort0, <<"">>];
@@ -73,13 +72,6 @@ parse_url(URL) ->
                        [H, P] -> {erlang:binary_to_list(H), erlang:binary_to_integer(P)}
                    end,
     {Host, Port, <<$/, Path/binary>>}.
-
-
-%% poll_host(HostName, HostDef) ->
-%%     HostUrl.
-
-%% poll_hosts_for_alias([Alias|Tail]) ->
-%%     [Alias | poll_hosts_for_alias(Tail)].
 
 
 list_map_merge(Map1, Map2) ->
@@ -116,13 +108,10 @@ parse_aliases([], Accumulator) ->
 
 
 %%% Server functions
-init(Aliases) when is_map(Aliases) ->
+init({Aliases, PollTimeout}) when is_map(Aliases) ->
     %% ?debugFmt("poller_server:init(~p)~n", [Aliases]),
-    {ok, parse_aliases(Aliases)}. %% no treatment of info here!
+    {ok, {parse_aliases(Aliases), PollTimeout}}. %% no treatment of info here!
 
-%% handle_call({resolve, Alias}, _From, Aliases) ->
-%%     %% ?debugFmt("handle_call:~p", {match, Path, Method}),
-%%     {reply, resolve_alias(Alias, Aliases), Aliases};
 handle_call(terminate, _From, State) ->
     {stop, normal, ok, State}.
 
@@ -170,7 +159,7 @@ parse_aliases_test() ->
                            #{<<"hosts">> =>
                                  #{
                                    <<"blue">> => <<"http://10">>,
-                                   <<"green">> => <<"http://20">>
+                                   <<"green">> => <<"http://20/foo">>
                                   }
                             },
                        <<"B">> =>
@@ -186,7 +175,7 @@ parse_aliases_test() ->
         {<<"http://10">>, unknown, [{<<"A">>, <<"blue">>},
                                     {<<"B">>, <<"blue">>},
                                     {<<"B">>, <<"green">>}]},
-        {<<"http://20">>, unknown, [{<<"A">>, <<"green">>}]}
+        {<<"http://20/foo">>, unknown, [{<<"A">>, <<"green">>}]}
        ],
        parse_aliases(SampleAliases)
       ).
@@ -195,16 +184,17 @@ parse_aliases_test() ->
 list_map_merge_test_() ->
     [
      ?_assertEqual(#{}, list_map_merge(#{}, #{})),
-     ?_assertEqual(#{a=> [1, 2]}, list_map_merge(#{a=>[1]}, #{a=>[2]}))
+     ?_assertEqual(#{a=> [1, 2]}, list_map_merge(#{a=>[1]}, #{a=>[2]})),
+     ?_assertEqual(#{a=> [1, 2, 3], b=> [1]}, list_map_merge(#{a=>[1, 2], b=>[1]}, #{a=>[3]}))
     ].
 
 parse_url_test_() ->
     [
-     ?_assertEqual({"devrandom.ro", 80, <<"/">>}, parse_url(<<"http://devrandom.ro">>)),
-     ?_assertEqual({"devrandom.ro", 80, <<"/">>}, parse_url(<<"http://devrandom.ro/">>)),
-     ?_assertEqual({"devrandom.ro", 80, <<"/foo/bar/">>}, parse_url(<<"http://devrandom.ro/foo/bar/">>)),
-     ?_assertEqual({"devrandom.ro", 80, <<"/foo/bar">>}, parse_url(<<"http://devrandom.ro/foo/bar">>)),
-     ?_assertEqual({"devrandom.ro", 443, <<"/foo/bar">>}, parse_url(<<"https://devrandom.ro/foo/bar">>))
+     ?_assertEqual({"example.com", 80, <<"/">>}, parse_url(<<"http://example.com">>)),
+     ?_assertEqual({"example.com", 80, <<"/">>}, parse_url(<<"http://example.com/">>)),
+     ?_assertEqual({"example.com", 80, <<"/foo/bar/">>}, parse_url(<<"http://example.com/foo/bar/">>)),
+     ?_assertEqual({"example.com", 80, <<"/foo/bar">>}, parse_url(<<"http://example.com/foo/bar">>)),
+     ?_assertEqual({"example.com", 443, <<"/foo/bar">>}, parse_url(<<"https://example.com/foo/bar">>))
     ].
 
 -endif.

@@ -52,11 +52,11 @@ route_spec_fixture() ->
 
 start() ->
     {ok, Pid} = route_spec_server:start(route_spec_fixture()),
-    ?debugFmt("start: ~p", [Pid]),
+    %% ?debugFmt("start: ~p", [Pid]),
     Pid.
 
-stop(Pid) ->
-    ?debugFmt("stop: ~p", [Pid]),
+stop(_Pid) ->
+    %% ?debugFmt("stop: ~p", [Pid]),
     %% gen_server:call(terminate, Pid).
     route_spec_server:stop().
 
@@ -80,16 +80,16 @@ test_match_server(_) ->
         {"blue", 9010}, route_spec_server:match_server(<<"/path/alias">>, <<"GET">>))
     ].
 
-test_disable_route(Pid) ->
-    ?debugFmt("test_disable:~p", [Pid]),
+test_disable_route(_Pid) ->
+    %% ?debugFmt("test_disable:~p", [Pid]),
     ok = route_spec_server:disable_routespec(10),
-    ?debugFmt("test_disable:1", []),
+    %% ?debugFmt("test_disable:1", []),
     Host = route_spec_server:match_server(<<"/path/foo">>, <<"GET">>),
-    ?debugFmt("test_disable:2", []),
+    %% ?debugFmt("test_disable:2", []),
     [?_assertEqual({"localhost", 8000}, Host)].
 
-test_enable_route(Pid) ->
-    ?debugFmt("test_enable:~p", [Pid]),
+test_enable_route(_Pid) ->
+    %% ?debugFmt("test_enable:~p", [Pid]),
     ok = route_spec_server:enable_routespec(20),
     Host = route_spec_server:match_server(<<"/path/bar">>, <<"GET">>),
     [?_assertEqual({"20", 8020}, Host)].

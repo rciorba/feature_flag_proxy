@@ -107,9 +107,6 @@ get_routespecs() ->
 match_server(Path, Method) ->
     gen_server:call(route_srv, {match, Path, Method}).
 
-update_alias(Alias, Host) ->
-    gen_server:call(route_srv, {update_alias, Alias, Host}).
-
 route_spec(Map) when is_map(Map) ->
     #{
       <<"regex">> := Regexp,
@@ -158,12 +155,6 @@ parse_host(HostBin) ->
                   end;
         [Host, Port] -> {erlang:binary_to_list(Host), erlang:binary_to_integer(Port)}
     end.
-
-
-get_any_active(Hosts, [])->
-    null;
-get_any_active(Hosts, [Host | _])->
-    maps:get(Host, Hosts).
 
 
 resolve_alias(Host, _Aliases) when is_tuple(Host) ->

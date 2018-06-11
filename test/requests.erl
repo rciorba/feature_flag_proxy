@@ -1,6 +1,6 @@
 -module(requests).
 
--export([open_connection/1, do_request/5, do_request/6]).
+-export([open_connection/1, open_connection/2, do_request/5, do_request/6]).
 -include_lib("eunit/include/eunit.hrl").
 
 
@@ -32,12 +32,15 @@ receive_data(ConnPid, MRef, StreamRef, Accumulator) ->
     end.
 
 
-open_connection({Host, Port}) ->
+open_connection(HostPort) ->
+    open_connection(HostPort, 5000).
+
+open_connection({Host, Port}, Timeout) ->
     {ok, ConnPid} = gun:open(Host, Port),
-    case gun:await_up(ConnPid) of
+    case gun:await_up(ConnPid, Timeout) of
         {ok, _Protocol} ->
             MRef = monitor(process, ConnPid),
-            ?debugFmt("open_connection -> ~n~p", [{ok, ConnPid, MRef}]),
+            %% ?debugFmt("open_connection -> ~n~p", [{ok, ConnPid, MRef}]),
             {ok, ConnPid, MRef};
         {error, Reason} -> {error, Reason}
     end.
@@ -45,7 +48,12 @@ open_connection({Host, Port}) ->
 do_request(ConnPid, MRef, Path, Method, RequestHeaders) ->
     do_request(ConnPid, MRef, Path, Method, RequestHeaders, null).
 
+do_request(ConnPid, MRef, Path, Method, RequestHeaders, Timeout) when is_integer(Timeout) ->
+    do_request(ConnPid, MRef, Path, Method, RequestHeaders, null, Timeout);
 do_request(ConnPid, MRef, Path, Method, RequestHeaders, Body) ->
+    do_request(ConnPid, MRef, Path, Method, RequestHeaders, Body, 5000).
+
+do_request(ConnPid, MRef, Path, Method, RequestHeaders, Body, Timeout) ->
     %% TODO: should probably use gun:await here for synchronous behavior
     %% io:format("Method:~p~nPath:~p~nBody:~p~nHeaders:~p~n", [Method, Path, Body, RequestHeaders]),
     StreamRef = case Body of
@@ -70,6 +78,6 @@ do_request(ConnPid, MRef, Path, Method, RequestHeaders, Body) ->
             exit(Reason);
         Any ->
             io:format("nomatch in dr:~n~p~n~p~n", [Any, {MRef, ConnPid}])
-    after 15000 ->
+    after Timeout ->
         timeout
     end.
