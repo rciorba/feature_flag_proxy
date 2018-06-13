@@ -10,14 +10,14 @@ start_link(Args) ->
 
 init(Args) ->
     #{<<"route_spec_server">> := RouteCfg} = Args,
-    Aliases = maps:get(<<"blue-green">>, RouteCfg),
+    Aliases = maps:get(<<"blue-green">>, RouteCfg, #{}),
     Procs = [
-             {alias_srv,
-              {alias_server, start_link, [Aliases]},
+             {poller_srv,
+              {poller_server, start_link, [Aliases, 5000]},
               permanent,
               100,
               worker,
-              [alias_server]},
+              [poller_server]},
              {route_srv,
               {route_spec_server, start_link, [RouteCfg]},
               permanent,

@@ -1,6 +1,6 @@
 -module(requests).
 
--export([open_connection/1, open_connection/2, do_request/5, do_request/6]).
+-export([open_connection/1, open_connection/2, do_request/5, do_request/6, parse_url/1]).
 -include_lib("eunit/include/eunit.hrl").
 
 
@@ -81,3 +81,35 @@ do_request(ConnPid, MRef, Path, Method, RequestHeaders, Body, Timeout) ->
     after Timeout ->
         timeout
     end.
+
+parse_url(URL) ->
+    %% ?debugFmt("parse_url: ~p", [URL]),
+    [Schema, Rest1] = binary:split(URL, <<"://">>),
+    [HostPort, Path] = case binary:split(Rest1, <<"/">>) of
+                           [HostPort0] ->  [HostPort0, <<"">>];
+                           [HostPort0, Path0] ->  [HostPort0, Path0]
+                       end,
+    %% {Host, Port} = route_spec_server:parse_host(HostPort),
+    {Host, Port} = case binary:split(HostPort, <<":">>) of
+                       [H] -> case Schema of
+                                  <<"http">> -> {erlang:binary_to_list(H), 80};
+                                  <<"https">> -> {erlang:binary_to_list(H), 443}
+                              end;
+                       [H, P] -> {erlang:binary_to_list(H), erlang:binary_to_integer(P)}
+                   end,
+    {Host, Port, <<$/, Path/binary>>}.
+
+
+-ifdef(EUNIT).
+
+parse_url_test_() ->
+    [
+     ?_assertEqual({"example.com", 80, <<"/">>}, parse_url(<<"http://example.com">>)),
+     ?_assertEqual({"example.com", 80, <<"/">>}, parse_url(<<"http://example.com/">>)),
+     ?_assertEqual({"example.com", 80, <<"/foo/bar/">>}, parse_url(<<"http://example.com/foo/bar/">>)),
+     ?_assertEqual({"example.com", 80, <<"/foo/bar">>}, parse_url(<<"http://example.com/foo/bar">>)),
+     ?_assertEqual({"example.com", 443, <<"/foo/bar">>}, parse_url(<<"https://example.com/foo/bar">>))
+    ].
+
+
+-endif.

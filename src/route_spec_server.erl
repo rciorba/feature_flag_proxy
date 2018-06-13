@@ -5,7 +5,7 @@
 -export([start/1, start_link/1, stop/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, code_change/3, terminate/2]).
 -export([disable_routespec/1, enable_routespec/1, get_routespecs/0,
-         route_spec/2, route_spec/3, match_server/2]).
+         route_spec/2, route_spec/3, match_server/2, update_alias/2, update_active/1]).
 
 -record(spec, {regexp, host, enabled=true, methods, id}).
 
@@ -22,15 +22,46 @@ start_link(Args) ->
 stop() ->
     gen_server:call(route_srv, terminate).
 
+
+copy_alias_key(Alias, ParsedAlias, Key) ->
+    BinKey = erlang:atom_to_binary(Key, utf8),
+    Hosts = maps:get(hosts, ParsedAlias),
+    case maps:get(BinKey, Alias, null) of
+        null ->
+            %% nothing to copy
+            ?debugFmt("no key ~p in:~n~p", [Key, Alias]),
+            %% io:format("no key ~p in:~n~p~n", [Key, Alias]),
+            ParsedAlias;
+        Value ->
+            case maps:is_key(Value, Hosts) of
+                true -> maps:put(Key, Value, ParsedAlias);
+                false -> exit({bad_host_alias, Key, Value, Alias})
+            end
+    end.
+
 parse_alias(Alias) ->
     %% ?debugFmt("parse_alias:~p", [Alias]),
     ParseHosts = fun (_, Host) ->
                          parse_host(Host)
                  end,
-    #{
+    Parsed = #{
       hosts => maps:map(ParseHosts, maps:get(<<"hosts">>, Alias)),
-      current => maps:get(<<"current">>, Alias)
-     }.
+      %% current => maps:get(<<"current">>, Alias),
+      active => []
+     },
+    Parsed1 = copy_alias_key(Alias, Parsed, next_current),
+    copy_alias_key(Alias, Parsed1, current).
+
+    %% case maps:get(<<"next_current">>, Alias) of
+    %%     error -> Parsed;
+    %%     NextCurrent ->
+    %%         case maps:is_key(NextCurrent, Hosts) of
+    %%             true -> maps:put(next_current, NextCurrent, Parsed);
+    %%             false -> exit({bad_next_current, NextCurrent, Alias})
+    %%         end
+    %% end.
+
+
 parse_aliases(Aliases) ->
     %% ?debugFmt("parse_aliases:~p", [Aliases]),
     maps:map(fun(_, V)-> parse_alias(V) end, Aliases).
@@ -44,9 +75,9 @@ init(RouteCfg) ->
      } = RouteCfg,
     Aliases1 = maps:get(<<"blue-green">>, RouteCfg, #{}),
     Aliases2 = parse_aliases(Aliases1),
-    %% ?debugFmt("pa:~p", [Aliases2]),
+    io:format("Aliases:~p~n", [Aliases2]),
     RouteSpecs = [route_spec(Route) || Route <- Routes],
-    {ok, {RouteSpecs, parse_host(Default), Aliases2}}. %% no treatment of info here!
+    {ok, {RouteSpecs, parse_host(Default), Aliases2}}.
 
 handle_call(get, _From, State) ->
     {Routes, _Default, _Aliases} = State,
@@ -70,8 +101,19 @@ handle_call({enable, Id}, _From, State) ->
     {RouteSpecs, Default, Aliases} = State,
     case enable_routespec(Id, RouteSpecs) of
         {ok, NewRouteSpecs} -> {reply, ok, {NewRouteSpecs, Default, Aliases}};
-        badid -> {reply, error, {RouteSpecs, Default, Aliases}}
+        badid -> {reply, error, State}
     end;
+handle_call({update_alias, Alias, Host}, _From, State) ->
+    {RouteSpecs, Default, Aliases} = State,
+    case update_alias(Aliases, Alias, Host) of
+        {ok, NewAliases} -> {reply, ok, {RouteSpecs, Default, transition_next_current(NewAliases)}};
+        badhost -> {reply, error, State};
+        badalias -> {reply, error, State}
+    end;
+handle_call({update_active, ActiveHosts}, _From, State) ->
+    {RouteSpecs, Default, Aliases} = State,
+    NewAliases = update_active(Aliases, ActiveHosts),
+    {reply, ok, {RouteSpecs, Default, transition_next_current(NewAliases)}};
 handle_call(terminate, _From, State) ->
     {stop, normal, ok, State}.
 
@@ -93,6 +135,49 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 
+%% PrivateAPI
+
+update_active(Aliases, ActiveHosts) ->
+    maps:fold(
+      fun (AliasName, AliasActiveHosts, Acc) ->
+              Alias = maps:get(AliasName, Acc),
+              NewAlias = maps:put(active, AliasActiveHosts, Alias),
+              maps:put(AliasName, NewAlias, Acc)
+      end,
+      Aliases,
+      ActiveHosts
+    ).
+
+
+update_alias(Aliases, AliasName, HostName) ->
+    %% sets next_current
+    case maps:get(AliasName, Aliases, badalias) of
+        badalias -> badalias;
+        Alias ->
+            case maps:is_key(HostName, maps:get(hosts, Alias)) of
+                false -> badhost;
+                true ->
+                    NewAlias = maps:put(next_current, HostName, Alias),
+                    {ok, maps:put(AliasName, NewAlias, Aliases)}
+            end
+    end.
+
+transition_next_current(Aliases) ->
+    maps:map(
+      fun(_, Alias) ->
+              case maps:take(next_current, Alias) of
+                  error -> Alias;
+                  {NextCurrent, Alias1} ->
+                      Active = maps:get(active, Alias1),
+                      case lists:any(fun(E) -> E =:= NextCurrent end, Active) of
+                          false -> Alias;
+                          true -> maps:put(current, NextCurrent, Alias1)
+                      end
+              end
+      end,
+      Aliases).
+
+
 %%% public API
 
 disable_routespec(Id) ->
@@ -106,6 +191,12 @@ get_routespecs() ->
 
 match_server(Path, Method) ->
     gen_server:call(route_srv, {match, Path, Method}).
+
+update_alias(Alias, Host) ->
+    gen_server:call(route_srv, {update_alias, Alias, Host}).
+
+update_active(ActiveHosts) ->
+    gen_server:call(route_srv, {update_active, ActiveHosts}).
 
 route_spec(Map) when is_map(Map) ->
     #{
@@ -139,30 +230,23 @@ enable_routespec(Id, RouteSpecs) ->
 %%% Private API
 
 parse_host(<< $$, HostBin/bits >>) ->
-    io:format("================================ ~n", []),
-    io:format("parse_host1: ~p~n", [HostBin]),
-    io:format("================================ ~n", []),
+    %% io:format("================================ ~n", []),
+    %% io:format("parse_host1: ~p~n", [HostBin]),
+    %% io:format("================================ ~n", []),
     HostBin;
-parse_host(HostBin) ->
-    io:format("================================ ~n", []),
-    io:format("parse_host2: ~p~n", [HostBin]),
-    io:format("================================ ~n", []),
-    [Schema, HostPort] = binary:split(HostBin, <<"://">>),
-    case binary:split(HostPort, <<":">>) of
-        [Host] -> case Schema of
-                      <<"http">> -> {erlang:binary_to_list(Host), 80};
-                      <<"https">> -> {erlang:binary_to_list(Host), 443}
-                  end;
-        [Host, Port] -> {erlang:binary_to_list(Host), erlang:binary_to_integer(Port)}
-    end.
+parse_host(URL) ->
+    %% io:format("================================ ~n", []),
+    %% io:format("parse_host2: ~p~n", [HostBin]),
+    %% io:format("================================ ~n", []),
+    {Host, Port, _Path} = requests:parse_url(URL),
+    {Host, Port}.
 
 
 resolve_alias(Host, _Aliases) when is_tuple(Host) ->
     Host;
 resolve_alias(Host, Aliases) when is_binary(Host) ->
     case maps:get(Host, Aliases, badalias) of
-        badalias ->
-            badalias;
+        badalias -> badalias;
         Alias ->
             %% Active = maps:get(active, Alias, []),
             Hosts = maps:get(hosts, Alias),
@@ -211,3 +295,120 @@ toggle_routespec(Id, RouteSpecs, Enabled, Acc) ->
               {ok, lists:reverse(Acc1) ++ Tail};
         _ -> toggle_routespec(Id, Tail, Enabled, [Spec | Acc])
     end.
+
+-ifdef(EUNIT).
+
+parse_aliases_test_() ->
+    [
+     ?_assertEqual(#{}, parse_aliases(#{})),
+     ?_assertEqual(
+        #{<<"A">> =>
+              #{
+                hosts =>
+                    #{
+                      <<"blue">> => {"blue", 9010},
+                      <<"green">> => {"green", 9010}
+                     },
+                current => <<"blue">>,
+                active => []
+               }
+         },
+        parse_aliases(
+          #{<<"A">> =>
+                #{
+                  <<"hosts">> =>
+                      #{
+                        <<"blue">> => <<"http://blue:9010/foo">>,
+                        <<"green">> => <<"http://green:9010/foo">>
+                       },
+                  <<"current">> => <<"blue">>
+                 }
+           })
+       )
+    ].
+
+update_alias_test_() ->
+    AHost = #{
+              hosts =>
+                  #{
+                    <<"blue">> => {"blue", 9010},
+                    <<"green">> => {"green", 9010}
+                   },
+              current => <<"blue">>,
+              active => []
+             },
+    InitialState = #{
+                     <<"A">> => AHost
+                    },
+    [
+     ?_assertEqual(
+        {ok, maps:put(<<"A">>, maps:put(next_current, <<"green">>, AHost), InitialState)},
+        update_alias(InitialState, <<"A">>, <<"green">>)),
+     ?_assertEqual(
+        badalias,
+        update_alias(InitialState, <<"BadAlias">>, <<"green">>)),
+     ?_assertEqual(
+        badhost,
+        update_alias(InitialState, <<"A">>, <<"turquoise">>))
+    ].
+
+
+transition_next_current_test_() ->
+    NoActive = #{
+                 <<"A">> => #{
+                              hosts =>
+                                  #{
+                                    <<"blue">> => {"blue", 9010},
+                                    <<"green">> => {"green", 9010}
+                                   },
+                              current => <<"green">>,
+                              active => []
+                             }
+                },
+    [
+     ?_assertEqual(
+        #{
+          <<"A">> => #{
+                       hosts =>
+                           #{
+                             <<"blue">> => {"blue", 9010},
+                             <<"green">> => {"green", 9010}
+                            },
+                       current => <<"green">>,
+                       active => [<<"green">>]
+                      }
+         },
+        transition_next_current(
+          #{
+            <<"A">> => #{
+                         hosts =>
+                             #{
+                               <<"blue">> => {"blue", 9010},
+                               <<"green">> => {"green", 9010}
+                              },
+                         current => <<"blue">>,
+                         next_current => <<"green">>,
+                         active => [<<"green">>]
+                        }
+           })
+       ),
+     ?_assertEqual(NoActive, transition_next_current(NoActive))
+    ].
+
+update_active_test() ->
+    AHost = #{
+              hosts =>
+                  #{
+                    <<"blue">> => {"blue", 9010},
+                    <<"green">> => {"green", 9010}
+                   },
+              current => <<"blue">>,
+              active => []
+             },
+    InitialState = #{
+                     <<"A">> => AHost
+                    },
+    ?assertEqual(maps:put(<<"A">>, maps:put(active, [<<"green">>], AHost), InitialState),
+                 update_active(InitialState, #{<<"A">> => [<<"green">>]})).
+
+-endif.

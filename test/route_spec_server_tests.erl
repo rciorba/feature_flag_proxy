@@ -3,7 +3,7 @@
 
 route_spec_fixture() ->
     #{
-      <<"routes">> => 
+      <<"routes">> =>
           [
            #{
              <<"regex">> => <<"/path/foo">>,
@@ -39,8 +39,8 @@ route_spec_fixture() ->
           ],
       <<"default">> => <<"http://localhost:8000">>,
       <<"blue-green">> =>
-          #{<<"spandex">> => 
-                #{<<"hosts">> => 
+          #{<<"spandex">> =>
+                #{<<"hosts">> =>
                       #{
                         <<"blue">> => <<"http://blue:9010">>,
                         <<"green">> => <<"http://green:9020">>

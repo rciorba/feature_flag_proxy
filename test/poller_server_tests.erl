@@ -8,8 +8,8 @@ handle_fixture_portpath({Port, Path}) ->
     {integer_to_binary(Port), Path}.
 
 
-alias_fixture() ->
-    alias_fixture(9010, 9020).
+%% alias_fixture() ->
+%%     alias_fixture(9010, 9020).
 alias_fixture(Blue, Green) ->
     {BPort, BPath} = handle_fixture_portpath(Blue),
     {GPort, GPath} = handle_fixture_portpath(Green),
@@ -53,7 +53,7 @@ stop_http([{Pid, _Port} | Tail]) ->
 %% start_poller(PidPortList, Paths) ->
 start_poller(PidPortList) ->
     {ok, _} = application:ensure_all_started(gun),
-    [{_, BluePort}, {_, GreenPort}] = PidPortList,
+    %% [{_, BluePort}, {_, GreenPort}] = PidPortList,
     %% [BluePath, GreenPath] = Paths,
     %% {ok, _} = poller_server:start(alias_fixture({BluePort, BluePath}, {GreenPort, GreenPath}), 200),
     PidPortList.
@@ -75,7 +75,7 @@ test_poll_hosts([{_, BluePort}, {_, GreenPort}], Paths, Expected) ->
           end,
     ExpectedState = maps:from_list(
                       [
-                       {MakeURL(Port, Path), S} || 
+                       {MakeURL(Port, Path), S} ||
                           {{Port, Path}, S} <- lists:zip([Blue, Green], Expected)
                       ]),
     StateMap = maps:from_list(

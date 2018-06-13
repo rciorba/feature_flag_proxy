@@ -5,7 +5,7 @@
 
 -export([start/2, start_link/2, stop/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, code_change/3, terminate/2]).
--export([poll_hosts/2]).
+-export([poll_hosts/2, trigger_poll_hosts/0]).
 
 start_link(AliasCfg, Timeout) ->
     gen_server:start_link({local, poller_srv}, ?MODULE, {AliasCfg, Timeout}, []).
@@ -19,7 +19,7 @@ stop() ->
 
 
 poll_host({URL, _State, Aliases}, Timeout) ->
-    {Host, Port, Path} = parse_url(URL),
+    {Host, Port, Path} = requests:parse_url(URL),
     NewState = case requests:open_connection({Host, Port}, Timeout) of
                    {ok, ConnPid, MRef} ->
                        Resp = case requests:do_request(
@@ -51,28 +51,28 @@ poll_host({URL, _State, Aliases}, Timeout) ->
 poll_hosts([], _Timeout) ->
     [];
 poll_hosts([Host | Tail], Timeout) ->
+    %% io:format("poll_hosts:~n~p~n", [[Host | Tail]]),
     [poll_host(Host, Timeout) | poll_hosts(Tail, Timeout)].
 
 %%% Private API
 
+get_active_aliases(State) ->
+    UpHosts = lists:append(
+                [
+                 Aliases || {_, UpDown, Aliases} <- State,
+                            UpDown =:= up
+                ]),
+    lists:foldl(
+      fun({Alias, Host}, Acc) ->
+              HostList = maps:get(Alias, Acc, []),
+              maps:put(Alias, HostList++[Host], Acc)
+      end,
+      #{},
+      UpHosts
+     ).
 
-parse_url(URL) ->
-    %% ?debugFmt("parse_url: ~p", [URL]),
-    [Schema, Rest1] = binary:split(URL, <<"://">>),
-    [HostPort, Path] = case binary:split(Rest1, <<"/">>) of
-                           [HostPort0] ->  [HostPort0, <<"">>];
-                           [HostPort0, Path0] ->  [HostPort0, Path0]
-                       end,
-    %% {Host, Port} = route_spec_server:parse_host(HostPort),
-    {Host, Port} = case binary:split(HostPort, <<":">>) of
-                       [H] -> case Schema of
-                                  <<"http">> -> {erlang:binary_to_list(H), 80};
-                                  <<"https">> -> {erlang:binary_to_list(H), 443}
-                              end;
-                       [H, P] -> {erlang:binary_to_list(H), erlang:binary_to_integer(P)}
-                   end,
-    {Host, Port, <<$/, Path/binary>>}.
-
+trigger_poll_hosts() ->
+    gen_server:cast(poller_srv, poll_and_update).
 
 list_map_merge(Map1, Map2) ->
     maps:fold(
@@ -82,6 +82,7 @@ list_map_merge(Map1, Map2) ->
       end,
       Map2,
       Map1).
+
 
 parse_alias(Alias, AliasName) ->
     Hosts = maps:get(<<"hosts">>, Alias),
@@ -110,11 +111,25 @@ parse_aliases([], Accumulator) ->
 %%% Server functions
 init({Aliases, PollTimeout}) when is_map(Aliases) ->
     %% ?debugFmt("poller_server:init(~p)~n", [Aliases]),
+    {ok, _} = timer:apply_interval(timer:seconds(30), ?MODULE, trigger_poll_hosts, []),
+    {ok, _} = timer:apply_after(100, ?MODULE, trigger_poll_hosts, []),
     {ok, {parse_aliases(Aliases), PollTimeout}}. %% no treatment of info here!
 
 handle_call(terminate, _From, State) ->
     {stop, normal, ok, State}.
 
+handle_cast(poll_and_update, State) ->
+    {Aliases, Timeout} = State,
+    %% io:format("cast:~n~p~n", [State]),
+    NewAliases = poll_hosts(Aliases, Timeout),
+    case NewAliases =:= Aliases of
+        false ->
+            ActiveHosts = get_active_aliases(NewAliases),
+            route_spec_server:update_active(ActiveHosts),
+            {noreply, {NewAliases, Timeout}};
+        true ->
+            {noreply, State}
+    end;
 handle_cast(Msg, State) ->
     io:format("Unexpected message: ~p~n", [Msg]),
     {noreply, State}.
@@ -188,13 +203,25 @@ list_map_merge_test_() ->
      ?_assertEqual(#{a=> [1, 2, 3], b=> [1]}, list_map_merge(#{a=>[1, 2], b=>[1]}, #{a=>[3]}))
     ].
 
-parse_url_test_() ->
+get_active_aliases_test_() ->
     [
-     ?_assertEqual({"example.com", 80, <<"/">>}, parse_url(<<"http://example.com">>)),
-     ?_assertEqual({"example.com", 80, <<"/">>}, parse_url(<<"http://example.com/">>)),
-     ?_assertEqual({"example.com", 80, <<"/foo/bar/">>}, parse_url(<<"http://example.com/foo/bar/">>)),
-     ?_assertEqual({"example.com", 80, <<"/foo/bar">>}, parse_url(<<"http://example.com/foo/bar">>)),
-     ?_assertEqual({"example.com", 443, <<"/foo/bar">>}, parse_url(<<"https://example.com/foo/bar">>))
+     ?_assertEqual(
+        #{<<"A">> => [<<"blue">>], <<"B">> => [<<"green">>]},
+        get_active_aliases([
+                            {<<"http://10">>, up, [{<<"A">>, <<"blue">>},
+                                                   {<<"B">>, <<"green">>}]},
+                            {<<"http://20/foo">>, down, [{<<"A">>, <<"green">>}]}
+                           ])
+       ),
+     ?_assertEqual(
+        #{<<"A">> => [<<"blue">>, <<"green">>], <<"B">> => [<<"green">>]},
+        get_active_aliases([
+                            {<<"http://10">>, up, [{<<"A">>, <<"blue">>},
+                                                   {<<"B">>, <<"green">>}]},
+                            {<<"http://20/foo">>, up, [{<<"A">>, <<"green">>}]}
+                           ])
+       )
     ].
+
 
 -endif.
