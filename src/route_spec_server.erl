@@ -52,15 +52,6 @@ parse_alias(Alias) ->
     Parsed1 = copy_alias_key(Alias, Parsed, next_current),
     copy_alias_key(Alias, Parsed1, current).
 
-    %% case maps:get(<<"next_current">>, Alias) of
-    %%     error -> Parsed;
-    %%     NextCurrent ->
-    %%         case maps:is_key(NextCurrent, Hosts) of
-    %%             true -> maps:put(next_current, NextCurrent, Parsed);
-    %%             false -> exit({bad_next_current, NextCurrent, Alias})
-    %%         end
-    %% end.
-
 
 parse_aliases(Aliases) ->
     %% ?debugFmt("parse_aliases:~p", [Aliases]),
@@ -138,6 +129,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% PrivateAPI
 
 update_active(Aliases, ActiveHosts) ->
+    error_logger:info_msg("Active hosts changed: ~p~n", [ActiveHosts]),
     maps:fold(
       fun (AliasName, AliasActiveHosts, Acc) ->
               Alias = maps:get(AliasName, Acc),
