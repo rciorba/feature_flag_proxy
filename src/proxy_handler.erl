@@ -57,19 +57,21 @@ proxy_request(Req, ConnPid, MRef, Path, HostTuple) ->
                            true -> cowboy_req:read_body(Req);
                            false -> {ok, null, Req}
                        end,
+    %% TODO: the timeout needs to be configurable
     {Status1, Req1} = case requests:do_request(
-                           ConnPid, MRef, Path, maps:get(method, Req0), RequestHeaders, Body) of
-                        {ok, Status, OriginalHeaders, ResponseBody} ->
-                            Headers = transform_response_headers(OriginalHeaders),
-                            {Status,
-                             cowboy_req:reply(Status,
-                                              maps:from_list(Headers),
-                                              ResponseBody,
-                                              Req0)};
-                        timeout ->
-                            Status = 504,
-                            {Status,
-                             error_response(Req0, Status, <<"upstream timedout">>)}
+                             ConnPid, MRef, Path, maps:get(method, Req0),
+                             RequestHeaders, Body, 1000*120) of
+                          {ok, Status, OriginalHeaders, ResponseBody} ->
+                              Headers = transform_response_headers(OriginalHeaders),
+                              {Status,
+                               cowboy_req:reply(Status,
+                                                maps:from_list(Headers),
+                                                ResponseBody,
+                                                Req0)};
+                          timeout ->
+                              Status = 504,
+                              {Status,
+                               error_response(Req0, Status, <<"upstream timedout">>)}
                       end,
     gun:shutdown(ConnPid),
     {Status1, Req1}.

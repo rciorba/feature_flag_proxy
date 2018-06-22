@@ -1,6 +1,6 @@
 -module(requests).
 
--export([open_connection/1, open_connection/2, do_request/5, do_request/6, parse_url/1]).
+-export([open_connection/1, open_connection/2, do_request/5, do_request/6, do_request/7, parse_url/1]).
 -include_lib("eunit/include/eunit.hrl").
 
 
