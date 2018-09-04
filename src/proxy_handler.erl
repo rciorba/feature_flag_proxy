@@ -36,10 +36,14 @@ fix_header_name(HeaderName) ->
     end.
 
 
-transform_response_headers(Headers) ->
+transform_response_headers(Headers, HostTuple) ->
     %% TODO: https://www.mnot.net/blog/2011/07/11/what_proxies_must_do
-    [{<<"via">>, <<"1.1 feature_flag_proxy">>} |
-     [{fix_header_name(K), V} || {K, V} <- filter_proxy_headers(Headers)]
+    [
+     {<<"x-debug-bg">>, host_tuple_to_string(HostTuple)} |
+     [
+      {<<"via">>, <<"1.1 feature_flag_proxy">>} |
+      [{fix_header_name(K), V} || {K, V} <- filter_proxy_headers(Headers)]
+     ]
     ].
 
 
@@ -62,7 +66,7 @@ proxy_request(Req, ConnPid, MRef, Path, HostTuple) ->
                              ConnPid, MRef, Path, maps:get(method, Req0),
                              RequestHeaders, Body, 1000*120) of
                           {ok, Status, OriginalHeaders, ResponseBody} ->
-                              Headers = transform_response_headers(OriginalHeaders),
+                              Headers = transform_response_headers(OriginalHeaders, HostTuple),
                               {Status,
                                cowboy_req:reply(Status,
                                                 maps:from_list(Headers),
