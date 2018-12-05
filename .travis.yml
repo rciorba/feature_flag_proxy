@@ -8,5 +8,3 @@ install:
   - "make"
 
 script: make tests
-
-sudo: false
