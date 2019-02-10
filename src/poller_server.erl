@@ -38,7 +38,10 @@ poll_host({URL, _State, Aliases}, Timeout) ->
                                       %% ?debugFmt("badstatus:~p", [{Status, Headers, Body}]),
                                       down;
                                   timeout ->
-                                      down
+                                      down;
+                                  Other ->
+                                      ?debugFmt("~n >>>>>>>  BadReturn:~p", [Other]),
+                                      throw({bad_return, Other})
                               end,
                        demonitor(MRef, [flush]),
                        gun:shutdown(ConnPid),

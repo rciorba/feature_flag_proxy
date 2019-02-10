@@ -52,55 +52,75 @@ route_spec_fixture() ->
 
 start() ->
     {ok, Pid} = route_spec_server:start(route_spec_fixture()),
-    %% ?debugFmt("start: ~p", [Pid]),
     Pid.
 
 stop(_Pid) ->
-    %% ?debugFmt("stop: ~p", [Pid]),
-    %% gen_server:call(terminate, Pid).
     route_spec_server:stop().
 
 test_match_server(_) ->
-    [
-     ?_assertEqual(
-        {"10", 8010}, route_spec_server:match_server(<<"/path/foo">>, <<"GET">>)),
-     ?_assertEqual(
-        {"10", 8010}, route_spec_server:match_server(<<"/path/foo">>, <<"POST">>)),
-     ?_assertEqual(
-        {"localhost", 8000}, route_spec_server:match_server(<<"/path/foo">>, <<"PUT">>)),
-     ?_assertEqual(
-        {"localhost", 8000}, route_spec_server:match_server(<<"/path/bar">>, <<"GET">>)),
-     ?_assertEqual(
-        {"30", 8030}, route_spec_server:match_server(<<"/path/bar/foo">>, <<"GET">>)),
-     ?_assertEqual(
-        {"40", 80}, route_spec_server:match_server(<<"/path/noport">>, <<"GET">>)),
-     ?_assertEqual(
-        {"localhost", 8000}, route_spec_server:match_server(<<"/bs">>, <<"GET">>)),
-     ?_assertEqual(
-        {"blue", 9010}, route_spec_server:match_server(<<"/path/alias">>, <<"GET">>))
-    ].
+    {"Tests route_spec_server:match_server/2",
+      [
+       {"Test GET and POST match route 10, but PUT doesn't",
+        [
+         ?_assertEqual(
+            {"10", 8010}, route_spec_server:match_server(<<"/path/foo">>, <<"GET">>)),
+         ?_assertEqual(
+            {"10", 8010}, route_spec_server:match_server(<<"/path/foo">>, <<"POST">>)),
+         ?_assertEqual(
+            {"localhost", 8000}, route_spec_server:match_server(<<"/path/foo">>, <<"PUT">>))
+        ]},
+       {"Test a disabled route doesn't match",
+        [
+         ?_assertEqual(
+            {"localhost", 8000}, route_spec_server:match_server(<<"/path/bar">>, <<"GET">>)),
+         ?_assertEqual(
+            {"30", 8030}, route_spec_server:match_server(<<"/path/bar/foo">>, <<"GET">>))
+        ]},
+       {"Tests a missing port in the route spec defaults to 80",
+        ?_assertEqual(
+           {"40", 80}, route_spec_server:match_server(<<"/path/noport">>, <<"GET">>))
+       },
+       {"Tests we get the default if nothing matches",
+         ?_assertEqual(
+          {"localhost", 8000}, route_spec_server:match_server(<<"/bs">>, <<"GET">>))
+       },
+       {"Tests paths with aliases",
+         [
+          ?_assertEqual(
+             {"blue", 9010}, route_spec_server:match_server(<<"/path/alias">>, <<"GET">>)),
+          ?_assertEqual(
+             {"blue", 9010}, route_spec_server:match_server(<<"/path/alias/extra">>, <<"GET">>)),
+          ?_assertEqual(
+             {"blue", 9010}, route_spec_server:match_server(<<"/path/alias">>, <<"POST">>))
+         ]}
+      ]}.
 
 test_disable_route(_Pid) ->
-    %% ?debugFmt("test_disable:~p", [Pid]),
     ok = route_spec_server:disable_routespec(10),
-    %% ?debugFmt("test_disable:1", []),
     Host = route_spec_server:match_server(<<"/path/foo">>, <<"GET">>),
-    %% ?debugFmt("test_disable:2", []),
-    [?_assertEqual({"localhost", 8000}, Host)].
+    {
+      "Disable a route and chek the match",
+      [
+       ?_assertEqual({"localhost", 8000}, Host)
+      ]}.
 
 test_enable_route(_Pid) ->
-    %% ?debugFmt("test_enable:~p", [Pid]),
     ok = route_spec_server:enable_routespec(20),
     Host = route_spec_server:match_server(<<"/path/bar">>, <<"GET">>),
-    [?_assertEqual({"20", 8020}, Host)].
+    {"Enable a route and check the match",
+     [
+      ?_assertEqual({"20", 8020}, Host)
+     ]}.
 
 route_spec_test_()->
-    {foreach,
-     fun start/0,
-     fun stop/1,
-     [
-      fun test_match_server/1,
-      fun test_disable_route/1,
-      fun test_enable_route/1
-     ]
+    {spawn,
+     {foreach,
+      fun start/0,
+      fun stop/1,
+      [
+       fun test_match_server/1,
+       fun test_disable_route/1,
+       fun test_enable_route/1
+      ]
+     }
     }.

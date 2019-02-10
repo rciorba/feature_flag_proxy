@@ -1,8 +1,14 @@
 -module(route_spec_server).
 -behaviour(gen_server).
+-ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-endif.
 
--export([start/1, start_link/1, stop/0]).
+-export([
+         start/1,
+         start_link/1,
+         stop/0
+        ]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, code_change/3, terminate/2]).
 -export([disable_routespec/1, enable_routespec/1, get_routespecs/0,
          route_spec/2, route_spec/3, match_server/2, update_alias/2, update_active/1]).
@@ -10,11 +16,13 @@
 -record(spec, {regexp, host, enabled=true, methods, id}).
 
 start(Args) ->
+    %% ?debugFmt("~n RSS_START", []),
     Success = gen_server:start({local, route_srv}, ?MODULE, Args, []),
     io:format("SL: ~p~n -> ~p~n", [Args, Success]),
     Success.
 
 start_link(Args) ->
+    %% ?debugFmt("~n RSS_START_LINK", []),
     Success = gen_server:start_link({local, route_srv}, ?MODULE, Args, []),
     io:format("SL: ~p~n -> ~p~n", [Args, Success]),
     Success.
@@ -29,7 +37,7 @@ copy_alias_key(Alias, ParsedAlias, Key) ->
     case maps:get(BinKey, Alias, null) of
         null ->
             %% nothing to copy
-            ?debugFmt("no key ~p in:~n~p", [Key, Alias]),
+            %% ?debugFmt("no key ~p in:~n~p", [Key, Alias]),
             %% io:format("no key ~p in:~n~p~n", [Key, Alias]),
             ParsedAlias;
         Value ->
@@ -129,7 +137,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% PrivateAPI
 
 update_active(Aliases, ActiveHosts) ->
-    error_logger:info_msg("Active hosts changed: ~p~n", [ActiveHosts]),
+    %% error_logger:info_msg("Active hosts changed: ~p~n", [ActiveHosts]),
     maps:fold(
       fun (AliasName, AliasActiveHosts, Acc) ->
               Alias = maps:get(AliasName, Acc),

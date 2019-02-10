@@ -8,8 +8,9 @@ start_link(Args) ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, Args).
 
 
-init(Args) ->
-    #{<<"route_spec_server">> := RouteCfg} = Args,
+init([Cfg]) ->
+    io:format("SUP_INIT: ~p~n", [Cfg]),
+    #{<<"route_spec_server">> := RouteCfg} = Cfg,
     Aliases = maps:get(<<"blue-green">>, RouteCfg, #{}),
     Procs = [
              {poller_srv,

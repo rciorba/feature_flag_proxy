@@ -13,6 +13,7 @@ receive_data(ConnPid, MRef, StreamRef) ->
 
 
 receive_data(ConnPid, MRef, StreamRef, Accumulator) ->
+    io:format("RECV:~n", []),
     receive
         {gun_data, ConnPid, StreamRef, nofin, Data} ->
             receive_data(ConnPid, MRef, StreamRef, [Data | Accumulator]);
@@ -55,7 +56,7 @@ do_request(ConnPid, MRef, Path, Method, RequestHeaders, Body) ->
 
 do_request(ConnPid, MRef, Path, Method, RequestHeaders, Body, Timeout) ->
     %% TODO: should probably use gun:await here for synchronous behavior
-    %% io:format("Method:~p~nPath:~p~nBody:~p~nHeaders:~p~n", [Method, Path, Body, RequestHeaders]),
+    io:format("~nMethod:~p~nPath:~p~nBody:~p~nHeaders:~p~n", [Method, Path, Body, RequestHeaders]),
     StreamRef = case Body of
                     null -> gun:request(ConnPid, Method, Path, RequestHeaders);
                     _ -> gun:request(ConnPid, Method, Path, RequestHeaders, Body)
@@ -77,9 +78,11 @@ do_request(ConnPid, MRef, Path, Method, RequestHeaders, Body, Timeout) ->
             error_logger:error_msg("monitored gun process died!"),
             exit(Reason);
         Any ->
-            io:format("nomatch in dr:~n~p~n~p~n", [Any, {MRef, ConnPid}])
+            io:format("nomatch in dr:~n~p~n~p~n", [Any, {MRef, ConnPid}]),
+            throw({bad_msg, Any})
     after Timeout ->
-        timeout
+            io:format("~p timedout:~p~n", [Timeout, MRef]),
+            timeout
     end.
 
 parse_url(URL) ->
